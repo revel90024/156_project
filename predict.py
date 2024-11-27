@@ -20,14 +20,14 @@ class RevenuePredictor(nn.Module):
     def forward(self, x):
         return self.resnet(x)
 
-def predict_folder(model_path, folder_path):
+def predict_folder(folder_path):
     """
     Predict revenues for all images in a folder
     """
     # Setup model
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = RevenuePredictor()
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load('models/best_10M.pth'))  # Load best model
     model.to(device)
     model.eval()
     
@@ -72,7 +72,7 @@ def main():
     print("-" * 50)
     
     # Make predictions
-    predictions = predict_folder(model_path, image_folder)
+    predictions = predict_folder(image_folder)
     
     # Sort by predicted revenue
     predictions.sort(key=lambda x: x['predicted_revenue'], reverse=True)

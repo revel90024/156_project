@@ -9,12 +9,13 @@ def clean_and_save_dataset():
     print("\nCleaning dataset...")
     clean_data = []
     for movie in dataset:
-        # Keep only if:
-        if (movie['revenue'] >= 10_000_000 and    # Has meaningful revenue
-            movie['image'] is not None and      # Has image
-            movie['budget'] > 0):               # Has budget info
+        # Stricter filtering for 1M dataset
+        if (movie['revenue'] >= 1_000_000 and     # At least $1M revenue
+            movie['image'] is not None and         # Has image
+            movie['budget'] > 100_000 and          # Real budget
+            movie['release_date'] >= '2000-01-01'  # Modern movies
+            ):
             
-            # Keep only the fields we need
             clean_movie = {
                 'id': movie['id'],
                 'image': movie['image'],
@@ -30,28 +31,24 @@ def clean_and_save_dataset():
     
     # Save cleaned dataset
     clean_dataset = Dataset.from_list(clean_data)
-    clean_dataset.save_to_disk("clean_movies_10M")
-    print("\nSaved cleaned dataset to: clean_movies_10M/")
+    clean_dataset.save_to_disk("clean_movies_1M_modern")
+    print("\nSaved cleaned dataset to: clean_movies_1M_modern/")
     
-    # Save some stats as JSON
+    # Save stats
     revenues = [m['revenue'] for m in clean_data]
     stats = {
         'total_movies': len(clean_data),
         'revenue_stats': {
             'min': min(revenues),
             'max': max(revenues),
-            'avg': sum(revenues)/len(revenues)
+            'avg': sum(revenues)/len(revenues),
+            'median': sorted(revenues)[len(revenues)//2]
         }
     }
     
-    with open('dataset_stats.json', 'w') as f:
+    with open('dataset_stats_1M_modern.json', 'w') as f:
         json.dump(stats, f, indent=4)
-    
-    # Print stats
-    print(f"\nDataset stats:")
-    print(f"Total movies: {stats['total_movies']:,d}")
-    print(f"Revenue range: ${stats['revenue_stats']['min']:,.2f} - ${stats['revenue_stats']['max']:,.2f}")
-    print(f"Average revenue: ${stats['revenue_stats']['avg']:,.2f}")
+    print("\nSaved stats to: dataset_stats_1M_modern.json")
 
 if __name__ == "__main__":
     clean_and_save_dataset() 

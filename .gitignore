@@ -1,6 +1,7 @@
 # Data and models
 data/
-clean_movies/
+clean_movies_10M/
+models/
 *.pth
 dataset_stats.json
 

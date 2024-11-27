@@ -1,51 +1,12 @@
-# Standard imports - could also consider using fastai for higher-level abstractions
-# or tensorflow/keras for a different framework altogether
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
-from datasets import load_dataset
-from PIL import Image
+from datasets import load_from_disk
 import numpy as np
-from pathlib import Path
 import os
-import shutil
-
-# Setup paths
-PROJECT_ROOT = Path(__file__).parent
-DATA_DIR = PROJECT_ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
-
-# Remove the existing incomplete directory if it exists
-if (DATA_DIR / "skvarre___movie-posters").exists():
-    shutil.rmtree(DATA_DIR / "skvarre___movie-posters")
-
-print("Downloading dataset to:", DATA_DIR)
-# Download dataset directly to project directory
-dataset = load_dataset(
-    "skvarre/movie-posters",
-    cache_dir=DATA_DIR
-)
-
-print("\nDataset structure:", dataset)
-print("Number of examples:", len(dataset['train']))
-print("\nSample data point:", dataset['train'][0])
-
-print("\nDebug Info:")
-print("Current directory:", PROJECT_ROOT)
-print("Data directory:", DATA_DIR)
-print("Does data directory exist?:", DATA_DIR.exists())
-print("Contents of data directory:", list(DATA_DIR.glob("*")))
-
-# Debug directory contents
-dataset_path = DATA_DIR / "skvarre___movie-posters"
-print("\nChecking directory contents:")
-print(f"Directory exists: {dataset_path.exists()}")
-print("Contents:")
-for root, dirs, files in os.walk(dataset_path):
-    print(f"\nIn {root}:")
-    print("Directories:", dirs)
-    print("Files:", files)
+import json
+from PIL import Image
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
@@ -62,19 +23,13 @@ class MoviePosterDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.dataset[idx]
-        
-        # Debug print for first few items
-        if idx < 5:
-            print(f"Raw revenue for movie '{item['title']}': ${item['revenue']:,}")
-        
         image = item['image']
         revenue = float(item['revenue'])
         
-        # Skip log transform if revenue is 0
         if revenue > 0:
             revenue = np.log1p(revenue)
         else:
-            revenue = 0.0  # or some small value like 1.0
+            revenue = 0.0
             
         if self.transform:
             image = self.transform(image)
@@ -84,10 +39,7 @@ class MoviePosterDataset(Dataset):
 class RevenuePredictor(nn.Module):
     def __init__(self):
         super().__init__()
-        # Update to use newer weights parameter
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-        
-        # Replace the last fully connected layer
         num_features = self.resnet.fc.in_features
         self.resnet.fc = nn.Sequential(
             nn.Linear(num_features, 512),
@@ -99,146 +51,138 @@ class RevenuePredictor(nn.Module):
     def forward(self, x):
         return self.resnet(x)
 
-def train_model(model, train_loader, val_loader, epochs=10):
-    # Check for MPS (Apple Silicon GPU)
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using Apple Silicon GPU!")
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def train_with_params(train_loader, val_loader, params):
+    model = RevenuePredictor()
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    model = model.to(device)
     print(f"Training on: {device}")
     
-    model = model.to(device)
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=params['learning_rate'],
+        weight_decay=params['weight_decay']
+    )
     
-    # Track metrics
-    best_loss = float('inf')
-    epoch_losses = []
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=2, verbose=True
+    )
     
-    for epoch in range(epochs):
-        print(f"\nEpoch {epoch+1}/{epochs}")
-        print("-" * 50)
-        
+    best_val_loss = float('inf')
+    early_stopping_count = 0
+    
+    for epoch in range(params['epochs']):
         # Training phase
         model.train()
-        epoch_loss = 0
-        batch_count = len(train_loader)
+        train_losses = []
         
-        for batch_idx, (images, revenues) in enumerate(train_loader):
+        for images, revenues in train_loader:
             images, revenues = images.to(device), revenues.to(device)
             optimizer.zero_grad()
             
             outputs = model(images)
-            loss = criterion(outputs, revenues.unsqueeze(1))
+            loss = nn.MSELoss()(outputs, revenues.unsqueeze(1))
+            
+            if params['l1_lambda'] > 0:
+                l1_loss = sum(p.abs().sum() for p in model.parameters())
+                loss += params['l1_lambda'] * l1_loss
+                
             loss.backward()
+            
+            if params['clip_grad']:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), params['clip_grad'])
+                
             optimizer.step()
-            
-            epoch_loss += loss.item()
-            
-            if batch_idx % 10 == 0:  # Print every 10 batches
-                with torch.no_grad():
-                    print(f"\nBatch {batch_idx}")
-                    print(f"Loss: {loss.item():.4f}")
-                    print("\nSample predictions vs actuals:")
-                    for i in range(3):
-                        raw_pred = torch.exp(outputs[i]).item() - 1
-                        raw_actual = torch.exp(revenues[i]).item() - 1
-                        log_pred = outputs[i].item()
-                        log_actual = revenues[i].item()
-                        
-                        print(f"Movie {i+1}:")
-                        print(f"  Predicted (raw): ${raw_pred:,.0f}")
-                        print(f"  Actual (raw):    ${raw_actual:,.0f}")
-                        print(f"  Predicted (log): {log_pred:.2f}")
-                        print(f"  Actual (log):    {log_actual:.2f}")
-                        print(f"  Log-space error: {abs(log_pred - log_actual):.2f}")
+            train_losses.append(loss.item())
         
-        # Epoch summary
-        avg_epoch_loss = epoch_loss / batch_count
-        epoch_losses.append(avg_epoch_loss)
+        # Validation phase
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for images, revenues in val_loader:
+                images, revenues = images.to(device), revenues.to(device)
+                outputs = model(images)
+                val_loss = nn.MSELoss()(outputs, revenues.unsqueeze(1))
+                val_losses.append(val_loss.item())
         
-        print(f"\nEpoch {epoch+1} Summary:")
-        print(f"Average Loss: {avg_epoch_loss:.4f}")
-        if len(epoch_losses) > 1:
-            improvement = (epoch_losses[-2] - avg_epoch_loss) / epoch_losses[-2] * 100
-            print(f"Improvement from last epoch: {improvement:.1f}%")
+        avg_train_loss = np.mean(train_losses)
+        avg_val_loss = np.mean(val_losses)
         
-        # Save best model
-        if avg_epoch_loss < best_loss:
-            best_loss = avg_epoch_loss
-            torch.save(model.state_dict(), 'best_model_1M.pth')
-            print("✓ Saved new best model")
+        print(f"\nEpoch {epoch+1}/{params['epochs']}")
+        print(f"Train Loss: {avg_train_loss:.4f}")
+        print(f"Val Loss: {avg_val_loss:.4f}")
+        
+        scheduler.step(avg_val_loss)
+        
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            torch.save(model.state_dict(), 'models/clean_movies_1M_modern_best.pth')
+            early_stopping_count = 0
+        else:
+            early_stopping_count += 1
+            if early_stopping_count >= params['patience']:
+                print("Early stopping triggered")
+                break
+    
+    return best_val_loss
 
-def prepare_dataset(dataset, min_revenue=100_000, train_percentage=1.0):
-    """
-    1. Convert to list once
-    2. Sample from list (fast)
-    3. Filter revenue
-    """
-    print("\nPreparing dataset...")
+def grid_search(train_loader, val_loader):
+    param_grid = {
+        'learning_rate': [1e-3, 5e-4, 1e-4],
+        'weight_decay': [0.01, 0.001],
+        'epochs': [20],
+        'patience': [5],
+        'l1_lambda': [0, 0.001],
+        'clip_grad': [None, 1.0],
+        'batch_size': [16, 32]
+    }
     
-    # Convert to list once
-    print("Converting dataset to list...")
-    dataset_list = list(dataset)
-    total_size = len(dataset_list)
+    results = []
     
-    # Sample
-    sample_size = int(total_size * train_percentage)
-    print(f"Sampling {train_percentage*100:.0f}% of data ({sample_size:,d} movies)...")
-    import random
-    random.seed(42)
-    sampled_data = random.sample(dataset_list, sample_size)
-    
-    # Filter
-    print(f"Filtering movies below ${min_revenue:,} revenue...")
-    filtered_data = [
-        movie for movie in sampled_data 
-        if movie['revenue'] >= min_revenue
-    ]
-    
-    print(f"Final dataset size: {len(filtered_data):,d} movies")
-    
-    print("Converting back to Dataset format...")
-    from datasets import Dataset
-    return Dataset.from_list(filtered_data)
+    from itertools import product
+    keys = param_grid.keys()
+    for values in product(*param_grid.values()):
+        params = dict(zip(keys, values))
+        print("\nTrying parameters:", params)
+        
+        val_loss = train_with_params(train_loader, val_loader, params)
+        results.append((val_loss, params))
+        
+        # Save results after each trial
+        results.sort(key=lambda x: x[0])
+        with open('models/clean_movies_1M_modern_tuning.json', 'w') as f:
+            json.dump({
+                'best_val_loss': results[0][0],
+                'best_params': results[0][1],
+                'all_results': [
+                    {'val_loss': loss, 'params': params}
+                    for loss, params in results
+                ]
+            }, f, indent=4)
 
 def main():
-    print("Loading dataset...")
-    dataset = load_dataset("skvarre/movie-posters", cache_dir=DATA_DIR)
+    os.makedirs('models', exist_ok=True)
     
-    clean_subset = prepare_dataset(
-        dataset["train"],
-        min_revenue=1_000_000,
-        train_percentage=1.0  # Try with 10% first
-    )
+    print("Loading clean dataset...")
+    dataset = load_from_disk("clean_movies_1M_modern")
     
     print("Splitting into train/val/test...")
-    splits = clean_subset.train_test_split(test_size=0.2, seed=42)
-    print("Creating validation split...")
+    splits = dataset.train_test_split(test_size=0.2, seed=42)
     train_val = splits["train"].train_test_split(test_size=0.1, seed=42)
     
     # Create datasets
     train_dataset = MoviePosterDataset(train_val, split="train")
     val_dataset = MoviePosterDataset(train_val, split="test")
-    test_dataset = MoviePosterDataset({"train": splits["test"]}, split="train")
     
-    # Create data loaders
+    # Create initial loaders with default batch size
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32)
-    test_loader = DataLoader(test_dataset, batch_size=32)
     
-    # Print split sizes
     print(f"\nDataset splits:")
     print(f"Training:   {len(train_dataset):,d} examples")
     print(f"Validation: {len(val_dataset):,d} examples")
-    print(f"Test:      {len(test_dataset):,d} examples")
     
-    model = RevenuePredictor()
-    train_model(model, train_loader, val_loader)
-    
-    # Save model for later testing
-    torch.save(model.state_dict(), 'revenue_predictor.pth')
+    print("\nStarting hyperparameter search...")
+    grid_search(train_loader, val_loader)
 
 if __name__ == "__main__":
     main()
