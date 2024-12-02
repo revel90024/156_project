@@ -4,6 +4,7 @@ clean_movies_10M/
 models/
 *.pth
 dataset_stats.json
+clean_movies_1M_modern/
 
 # Python
 __pycache__/

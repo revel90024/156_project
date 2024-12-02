@@ -7,6 +7,7 @@ import numpy as np
 import os
 import json
 from PIL import Image
+from full_predict import evaluate_sample
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
@@ -183,6 +184,9 @@ def main():
     
     print("\nStarting hyperparameter search...")
     grid_search(train_loader, val_loader)
+    
+    print("\nEvaluating best model on test set...")
+    evaluate_sample(splits["test"])  # Pass the test split
 
 if __name__ == "__main__":
     main()

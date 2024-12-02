@@ -50,23 +50,24 @@ class RevenuePredictor(nn.Module):
     def forward(self, x):
         return self.resnet(x)
 
-def evaluate_sample():
+def evaluate_sample(dataset=None):
     print("Loading dataset...")
-    dataset = load_from_disk("clean_movies_10M")
+    if dataset is None:
+        dataset = load_from_disk("clean_movies_1M_modern")
     
-    # Take random sample of 100 movies
+    # Take random sample of 300 movies
     all_indices = list(range(len(dataset)))
-    sample_indices = random.sample(all_indices, 100)
+    sample_indices = random.sample(all_indices, 300)
     sample_dataset = dataset.select(sample_indices)
     
     # Create dataloader
     test_dataset = MoviePosterDataset({"train": sample_dataset}, split="train")
     test_loader = DataLoader(test_dataset, batch_size=32)
     
-    print("Loading model...")
+    print("Loading best model from hyperparameter tuning...")
     model = RevenuePredictor()
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    model.load_state_dict(torch.load('models/best_model_1M.pth'))
+    model.load_state_dict(torch.load('models/clean_movies_1M_modern_best.pth'))
     model = model.to(device)
     model.eval()
     
