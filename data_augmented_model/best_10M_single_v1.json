@@ -1,0 +1,29 @@
+{
+    "val_loss": 1.278314431508382,
+    "params": {
+        "learning_rate": 0.0002,
+        "weight_decay": 0.0001,
+        "epochs": 25,
+        "patience": 7,
+        "l1_lambda": 0,
+        "clip_grad": null,
+        "batch_size": 32,
+        "hidden_sizes": [
+            1024,
+            512
+        ],
+        "dropout_rates": [
+            0.2,
+            0.2
+        ]
+    },
+    "test_metrics": {
+        "test_loss": 1.5620888812201363,
+        "within_25": 14.685314685314685,
+        "within_50": 27.73892773892774,
+        "accuracy": 56.17715617715617,
+        "precision": 54.81481481481482,
+        "recall": 69.1588785046729,
+        "f1_score": 61.15702479338842
+    }
+}

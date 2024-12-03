@@ -7,7 +7,7 @@ import torch.nn as nn
 import json
 import numpy as np
 
-MODEL_NAME_TO_TEST = "newarchitecture/best_10M_single_v1.pth"
+MODEL_NAME_TO_TEST = "data_augmented_model/best_10M_single_v1.pth"
 
 class RevenuePredictor(nn.Module):
     def __init__(self, hidden_sizes, dropout_rates):

@@ -11,12 +11,14 @@ from datetime import datetime
 
 MODEL_NAME = "best_10M_single_v1"
 DATASET_NAME = "clean_movies_10M"
-FOLDER_NAME = "newarchitecture"
+FOLDER_NAME = "data_augmented_model"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
         self.dataset = hf_dataset[split]
         self.transform = transform or transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
