@@ -7,7 +7,7 @@ import torch.nn as nn
 import json
 import numpy as np
 
-MODEL_NAME_TO_TEST = "log10_model/best_10M_log10_v1.pth"
+MODEL_NAME_TO_TEST = "newarchitecture/best_10M_single_v1.pth"
 
 class RevenuePredictor(nn.Module):
     def __init__(self, hidden_sizes, dropout_rates):
@@ -70,7 +70,7 @@ def predict_folder(folder_path, movie_data):
                 
                 with torch.no_grad():
                     log_revenue = model(image_tensor)
-                    predicted_revenue = float(10 ** log_revenue.squeeze())
+                    predicted_revenue = torch.exp(log_revenue).item() - 1
                 
                 # Calculate error
                 error_percent = abs(predicted_revenue - actual_revenue) / actual_revenue * 100
