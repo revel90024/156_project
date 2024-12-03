@@ -9,16 +9,14 @@ import json
 from PIL import Image
 from datetime import datetime
 
-MODEL_NAME = "best_10M_single_v1"
+MODEL_NAME = "best_10M_log10_v1"
 DATASET_NAME = "clean_movies_10M"
-FOLDER_NAME = "data_augmented_model"
+FOLDER_NAME = "log10_model"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
         self.dataset = hf_dataset[split]
         self.transform = transform or transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(10),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -34,7 +32,7 @@ class MoviePosterDataset(Dataset):
         revenue = float(item['revenue'])
         
         if revenue > 0:
-            revenue = np.log1p(revenue)
+            revenue = np.log10(revenue)
         else:
             revenue = 0.0
             
@@ -146,11 +144,21 @@ def train_with_params(train_loader, val_loader, params):
                 val_loss = nn.MSELoss()(outputs, revenues.unsqueeze(1))
                 val_losses.append(val_loss.item())
                 
-                # Store predictions and actuals for metrics
-                pred_revenue = torch.exp(outputs.squeeze()) - 1
-                actual_revenue = torch.exp(revenues) - 1
-                all_preds.extend(pred_revenue.cpu().numpy())
-                all_actuals.extend(actual_revenue.cpu().numpy())
+                # Fix the prediction storage
+                pred_revenue = 10 ** outputs.squeeze()
+                actual_revenue = 10 ** revenues
+                
+                # Convert to numpy arrays and make sure they're 1D
+                preds = pred_revenue.cpu().numpy()
+                actuals = actual_revenue.cpu().numpy()
+                
+                # Extend lists with the batch predictions
+                if len(preds.shape) == 0:  # If single number
+                    all_preds.append(float(preds))
+                    all_actuals.append(float(actuals))
+                else:  # If batch
+                    all_preds.extend(preds)
+                    all_actuals.extend(actuals)
         
         avg_train_loss = np.mean(train_losses)
         avg_val_loss = np.mean(val_losses)
@@ -280,8 +288,8 @@ def evaluate_on_test(model, test_loader, device):
             test_losses.append(test_loss.item())
             
             # Store predictions and actuals for metrics
-            pred_revenue = torch.exp(outputs.squeeze()) - 1
-            actual_revenue = torch.exp(revenues) - 1
+            pred_revenue = 10 ** outputs.squeeze()
+            actual_revenue = 10 ** revenues
             all_preds.extend(pred_revenue.cpu().numpy())
             all_actuals.extend(actual_revenue.cpu().numpy())
     
@@ -392,7 +400,7 @@ def main():
     
     print(f"Splitting into train/val/test... for model saving name: {MODEL_NAME}")
     
-    splits = dataset.train_test_split(test_size=0.2, seed=42)
+    splits = dataset.train_test_split(test_size=0.1, seed=42)
     train_val = splits["train"]
     test_dataset = splits["test"]
     
