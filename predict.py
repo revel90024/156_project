@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import torch.nn as nn
 
+MODEL_NAME_TO_TEST = "newmodels/best_10M_single.pth"
+
 class RevenuePredictor(nn.Module):
     def __init__(self):
         super().__init__()
@@ -27,7 +29,7 @@ def predict_folder(folder_path):
     # Setup model
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = RevenuePredictor()
-    model.load_state_dict(torch.load('models/best_10M.pth'))  # Load best model
+    model.load_state_dict(torch.load(MODEL_NAME_TO_TEST))  # Updated path
     model.to(device)
     model.eval()
     
@@ -65,7 +67,6 @@ def predict_folder(folder_path):
 
 def main():
     # Paths
-    model_path = 'best_model_1M.pth'  # Path to your trained model
     image_folder = 'test_posters'  # Folder containing test images
     
     print(f"\nPredicting revenues for images in: {image_folder}")

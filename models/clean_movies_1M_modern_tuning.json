@@ -1,0 +1,38 @@
+{
+    "best_val_loss": 2.182014989852905,
+    "best_params": {
+        "learning_rate": 0.001,
+        "weight_decay": 0.01,
+        "epochs": 20,
+        "patience": 5,
+        "l1_lambda": 0,
+        "clip_grad": null,
+        "batch_size": 32
+    },
+    "all_results": [
+        {
+            "val_loss": 2.182014989852905,
+            "params": {
+                "learning_rate": 0.001,
+                "weight_decay": 0.01,
+                "epochs": 20,
+                "patience": 5,
+                "l1_lambda": 0,
+                "clip_grad": null,
+                "batch_size": 32
+            }
+        },
+        {
+            "val_loss": 2.1952330589294435,
+            "params": {
+                "learning_rate": 0.001,
+                "weight_decay": 0.01,
+                "epochs": 20,
+                "patience": 5,
+                "l1_lambda": 0,
+                "clip_grad": null,
+                "batch_size": 16
+            }
+        }
+    ]
+}

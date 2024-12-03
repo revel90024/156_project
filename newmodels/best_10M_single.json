@@ -1,0 +1,21 @@
+{
+    "val_loss": 1.1612607538700104,
+    "params": {
+        "learning_rate": 0.0001,
+        "weight_decay": 0.001,
+        "epochs": 20,
+        "patience": 5,
+        "l1_lambda": 0,
+        "clip_grad": 1.0,
+        "batch_size": 32
+    },
+    "test_metrics": {
+        "test_loss": 1.444430994135993,
+        "within_25": 12.587412587412588,
+        "within_50": 27.505827505827508,
+        "accuracy": 55.011655011655016,
+        "precision": 53.420195439739416,
+        "recall": 76.63551401869158,
+        "f1_score": 62.955854126679455
+    }
+}

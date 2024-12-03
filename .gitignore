@@ -1,11 +1,11 @@
 # Data and models
 data/
 clean_movies_10M/
-models/
+*.arrow
 *.pth
 dataset_stats.json
 clean_movies_1M_modern/
-newmodels/
+
 
 # Python
 __pycache__/
