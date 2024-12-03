@@ -9,8 +9,9 @@ import json
 from PIL import Image
 from datetime import datetime
 
-MODEL_NAME = "best_10M_single"
+MODEL_NAME = "best_10M_single_v1"
 DATASET_NAME = "clean_movies_10M"
+FOLDER_NAME = "newarchitecture"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
@@ -41,22 +42,33 @@ class MoviePosterDataset(Dataset):
         return image, torch.tensor(revenue, dtype=torch.float32)
 
 class RevenuePredictor(nn.Module):
-    def __init__(self):
+    def __init__(self, hidden_sizes, dropout_rates):
         super().__init__()
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         num_features = self.resnet.fc.in_features
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(num_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 1)
-        )
+        
+        layers = []
+        in_features = num_features
+        
+        for hidden_size, dropout_rate in zip(hidden_sizes, dropout_rates):
+            layers.extend([
+                nn.Linear(in_features, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate)
+            ])
+            in_features = hidden_size
+        
+        layers.append(nn.Linear(in_features, 1))
+        self.resnet.fc = nn.Sequential(*layers)
     
     def forward(self, x):
         return self.resnet(x)
 
 def train_with_params(train_loader, val_loader, params):
-    model = RevenuePredictor()
+    model = RevenuePredictor(
+        hidden_sizes=params['hidden_sizes'],
+        dropout_rates=params['dropout_rates']
+    )
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = model.to(device)
     print(f"Training on: {device}")
@@ -191,12 +203,28 @@ def train_with_params(train_loader, val_loader, params):
         
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), f'newmodels/{MODEL_NAME}.pth')
+            torch.save(model.state_dict(), f'{FOLDER_NAME}/{MODEL_NAME}.pth')
+            
+            # Update JSON with both losses
+            current_results = {
+                'best_val_loss': float(best_val_loss),
+                'train_loss': float(avg_train_loss),
+                'best_epoch': epoch + 1,
+                'params': params,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            with open(f'{FOLDER_NAME}/{MODEL_NAME}.json', 'w') as f:
+                json.dump(current_results, f, indent=4)
+            
+            print(f"\nEpoch {epoch+1}")
+            print(f"Train Loss: {avg_train_loss:.4f}")
+            print(f"Val Loss:   {avg_val_loss:.4f}")
+            print("Saved new best model and updated JSON!")
             early_stopping_count = 0
         else:
             early_stopping_count += 1
             if early_stopping_count >= params['patience']:
-                print("Early stopping triggered")
+                print("\nEarly stopping triggered!")
                 break
     
     return best_val_loss
@@ -225,7 +253,7 @@ def grid_search(train_loader, val_loader):
         
         # Save results after each trial
         results.sort(key=lambda x: x[0])
-        with open(f'newmodels/{MODEL_NAME}.json', 'w') as f:
+        with open(f'{FOLDER_NAME}/{MODEL_NAME}.json', 'w') as f:
             json.dump({
                 'best_val_loss': results[0][0],
                 'best_params': results[0][1],
@@ -308,30 +336,44 @@ def evaluate_on_test(model, test_loader, device):
 
 def single_run(train_loader, val_loader, test_loader):
     params = {
-        'learning_rate': 1e-4,      # Smaller, stable steps
-        'weight_decay': 0.001,      # Gentle regularization
-        'epochs': 20,               # Same
-        'patience': 5,              # Same
-        'l1_lambda': 0,            # Skip L1 regularization
-        'clip_grad': 1.0,          # Keep grad clipping for stability
-        'batch_size': 32           # Larger batch for stability
+        # Training params
+        'learning_rate': 2e-4,      # Higher learning rate
+        'weight_decay': 0.0001,     # Less regularization
+        'epochs': 25,               # More epochs
+        'patience': 7,              # More patience
+        'l1_lambda': 0,            # No L1
+        'clip_grad': None,         # No gradient clipping
+        'batch_size': 32,          # Same batch size
+        
+        # Model architecture params
+        'hidden_sizes': [1024, 512],  # Bigger network
+        'dropout_rates': [0.2, 0.2]   # Less dropout
     }
     
-    print("\nRunning with carefully chosen parameters:")
+    print("\nRunning with less regularization:")
     print(json.dumps(params, indent=2))
+    
+    # Create model with specified architecture
+    model = RevenuePredictor(
+        hidden_sizes=params['hidden_sizes'],
+        dropout_rates=params['dropout_rates']
+    )
     
     val_loss = train_with_params(train_loader, val_loader, params)
     
     # Load best model for test evaluation
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    model = RevenuePredictor().to(device)
-    model.load_state_dict(torch.load(f'newmodels/{MODEL_NAME}.pth'))
+    model = RevenuePredictor(
+        hidden_sizes=params['hidden_sizes'],
+        dropout_rates=params['dropout_rates']
+    ).to(device)
+    model.load_state_dict(torch.load(f'{FOLDER_NAME}/{MODEL_NAME}.pth'))
     
     # Get test metrics
     test_metrics = evaluate_on_test(model, test_loader, device)
     
     # Save all results
-    with open(f'newmodels/{MODEL_NAME}.json', 'w') as f:
+    with open(f'{FOLDER_NAME}/{MODEL_NAME}.json', 'w') as f:
         json.dump({
             'val_loss': val_loss,
             'params': params,
@@ -341,7 +383,7 @@ def single_run(train_loader, val_loader, test_loader):
     return val_loss, test_metrics
 
 def main():
-    os.makedirs('newmodels', exist_ok=True)
+    os.makedirs(FOLDER_NAME, exist_ok=True)
     
     print("Loading clean dataset...")
     dataset = load_from_disk(DATASET_NAME)
@@ -392,10 +434,10 @@ def main():
         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
-    with open(f'newmodels/final_results_{MODEL_NAME}.json', 'w') as f:
+    with open(f'{FOLDER_NAME}/final_results_{MODEL_NAME}.json', 'w') as f:
         json.dump(results, f, indent=4)
     
-    print(f"\nResults saved to: newmodels/final_results_{MODEL_NAME}.json")
+    print(f"\nResults saved to: {FOLDER_NAME}/final_results_{MODEL_NAME}.json")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,23 @@
+{
+    "best_val_loss": 1.1301666796207428,
+    "train_loss": 1.227634873925423,
+    "best_epoch": 8,
+    "params": {
+        "learning_rate": 0.0002,
+        "weight_decay": 0.0001,
+        "epochs": 25,
+        "patience": 7,
+        "l1_lambda": 0,
+        "clip_grad": null,
+        "batch_size": 32,
+        "hidden_sizes": [
+            1024,
+            512
+        ],
+        "dropout_rates": [
+            0.2,
+            0.2
+        ]
+    },
+    "timestamp": "2024-12-02 18:51:51"
+}

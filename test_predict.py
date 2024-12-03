@@ -94,16 +94,34 @@ def main():
     within_25 = sum(1 for e in errors if e <= 25) / len(errors) * 100
     within_50 = sum(1 for e in errors if e <= 50) / len(errors) * 100
     
-    # Sort by actual revenue
-    predictions.sort(key=lambda x: x['actual_revenue'], reverse=True)
-    
-    # Print results
-    print("\nPredictions (sorted by actual revenue):")
+    # Print results sorted by predicted revenue
+    print("\nRanked by PREDICTED Revenue:")
     print("-" * 80)
     print(f"{'Title':<35} {'Predicted':<15} {'Actual':<15} {'Error':<10}")
     print("-" * 80)
     
-    for pred in predictions:
+    predictions_by_predicted = sorted(predictions, key=lambda x: x['predicted_revenue'], reverse=True)
+    for pred in predictions_by_predicted:
+        print(f"{pred['title']:<35} ${pred['predicted_revenue']:>14,.0f} ${pred['actual_revenue']:>14,.0f} {pred['error_percent']:>7.1f}%")
+    
+    # Print results sorted by actual revenue
+    print("\nRanked by ACTUAL Revenue:")
+    print("-" * 80)
+    print(f"{'Title':<35} {'Predicted':<15} {'Actual':<15} {'Error':<10}")
+    print("-" * 80)
+    
+    predictions_by_actual = sorted(predictions, key=lambda x: x['actual_revenue'], reverse=True)
+    for pred in predictions_by_actual:
+        print(f"{pred['title']:<35} ${pred['predicted_revenue']:>14,.0f} ${pred['actual_revenue']:>14,.0f} {pred['error_percent']:>7.1f}%")
+    
+    # Print results sorted by error
+    print("\nRanked by ERROR (worst to best):")
+    print("-" * 80)
+    print(f"{'Title':<35} {'Predicted':<15} {'Actual':<15} {'Error':<10}")
+    print("-" * 80)
+    
+    predictions_by_error = sorted(predictions, key=lambda x: x['error_percent'], reverse=True)
+    for pred in predictions_by_error:
         print(f"{pred['title']:<35} ${pred['predicted_revenue']:>14,.0f} ${pred['actual_revenue']:>14,.0f} {pred['error_percent']:>7.1f}%")
     
     print("\nOverall Metrics:")
