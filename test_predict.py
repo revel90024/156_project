@@ -7,38 +7,49 @@ import torch.nn as nn
 import json
 import numpy as np
 
-MODEL_NAME_TO_TEST = "newmodels/best_10M_single.pth"
+MODEL_NAME_TO_TEST = "newarchitecture/best_10M_single_v1.pth"
 
 class RevenuePredictor(nn.Module):
-    def __init__(self):
+    def __init__(self, hidden_sizes, dropout_rates):
         super().__init__()
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         num_features = self.resnet.fc.in_features
         self.resnet.fc = nn.Sequential(
-            nn.Linear(num_features, 512),
+            nn.Linear(num_features, hidden_sizes[0]),
             nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 1)
+            nn.Dropout(dropout_rates[0]),
+            nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+            nn.ReLU(),
+            nn.Dropout(dropout_rates[1]),
+            nn.Linear(hidden_sizes[1], 1)
         )
     
     def forward(self, x):
         return self.resnet(x)
 
+def load_model():
+    model = RevenuePredictor(
+        hidden_sizes=[1024, 512],
+        dropout_rates=[0.2, 0.2]
+    )
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    model = model.to(device)
+    
+    print(f"Loading model from: {MODEL_NAME_TO_TEST}")
+    model.load_state_dict(torch.load(MODEL_NAME_TO_TEST, weights_only=True))
+    model.eval()
+    return model, device
+
 def predict_folder(folder_path, movie_data):
     """
     Predict revenues for all images in a folder and compare with actual revenues
     """
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    model = RevenuePredictor()
-    model.load_state_dict(torch.load(MODEL_NAME_TO_TEST))
-    model.to(device)
-    model.eval()
-    
+    model, device = load_model()
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     
     results = []
@@ -76,6 +87,13 @@ def predict_folder(folder_path, movie_data):
     
     return results
 
+def format_revenue(revenue):
+    """Format revenue to handle any size number nicely"""
+    if revenue >= 1_000_000_000:  # Billions
+        return f"${revenue/1_000_000_000:.1f}B"
+    else:  # Millions
+        return f"${revenue/1_000_000:.1f}M"
+
 def main():
     # Load movie data
     with open('test_posters/movie-data.json', 'r') as f:
@@ -84,53 +102,28 @@ def main():
     print(f"\nTesting model: {MODEL_NAME_TO_TEST}")
     print("-" * 80)
     
-    # Make predictions
     predictions = predict_folder('test_posters', movie_data)
-    
-    # Calculate overall metrics
-    errors = [p['error_percent'] for p in predictions]
-    mean_error = np.mean(errors)
-    median_error = np.median(errors)
-    within_25 = sum(1 for e in errors if e <= 25) / len(errors) * 100
-    within_50 = sum(1 for e in errors if e <= 50) / len(errors) * 100
     
     # Print results sorted by predicted revenue
     print("\nRanked by PREDICTED Revenue:")
     print("-" * 80)
-    print(f"{'Title':<35} {'Predicted':<15} {'Actual':<15} {'Error':<10}")
+    print(f"{'Title':<45} {'Predicted':>12} {'Actual':>12} {'Error':>10}")
     print("-" * 80)
     
     predictions_by_predicted = sorted(predictions, key=lambda x: x['predicted_revenue'], reverse=True)
     for pred in predictions_by_predicted:
-        print(f"{pred['title']:<35} ${pred['predicted_revenue']:>14,.0f} ${pred['actual_revenue']:>14,.0f} {pred['error_percent']:>7.1f}%")
+        print(f"{pred['title']:<45} {format_revenue(pred['predicted_revenue']):>12} "
+              f"{format_revenue(pred['actual_revenue']):>12} {pred['error_percent']:>10.1f}%")
     
     # Print results sorted by actual revenue
     print("\nRanked by ACTUAL Revenue:")
     print("-" * 80)
-    print(f"{'Title':<35} {'Predicted':<15} {'Actual':<15} {'Error':<10}")
+    print(f"{'Title':<45} {'Predicted':>12} {'Actual':>12} {'Error':>10}")
     print("-" * 80)
     
-    predictions_by_actual = sorted(predictions, key=lambda x: x['actual_revenue'], reverse=True)
-    for pred in predictions_by_actual:
-        print(f"{pred['title']:<35} ${pred['predicted_revenue']:>14,.0f} ${pred['actual_revenue']:>14,.0f} {pred['error_percent']:>7.1f}%")
-    
-    # Print results sorted by error
-    print("\nRanked by ERROR (worst to best):")
-    print("-" * 80)
-    print(f"{'Title':<35} {'Predicted':<15} {'Actual':<15} {'Error':<10}")
-    print("-" * 80)
-    
-    predictions_by_error = sorted(predictions, key=lambda x: x['error_percent'], reverse=True)
-    for pred in predictions_by_error:
-        print(f"{pred['title']:<35} ${pred['predicted_revenue']:>14,.0f} ${pred['actual_revenue']:>14,.0f} {pred['error_percent']:>7.1f}%")
-    
-    print("\nOverall Metrics:")
-    print("-" * 80)
-    print(f"Mean Error:     {mean_error:.1f}%")
-    print(f"Median Error:   {median_error:.1f}%")
-    print(f"Within 25%:     {within_25:.1f}%")
-    print(f"Within 50%:     {within_50:.1f}%")
-    print("-" * 80)
+    for r in sorted(predictions, key=lambda x: x['actual_revenue'], reverse=True):
+        print(f"{r['title']:<45} {format_revenue(r['predicted_revenue']):>12} "
+              f"{format_revenue(r['actual_revenue']):>12} {r['error_percent']:>10.1f}%")
 
 if __name__ == "__main__":
     main()

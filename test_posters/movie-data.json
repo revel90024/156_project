@@ -1,7 +1,19 @@
 {
+    "alien_romulus.jpg": {
+        "title": "Alien: Romulus",
+        "actual_revenue": 350900000
+    },
     "barbie.jpg": {
         "title": "Barbie",
         "actual_revenue": 1446000000
+    },
+    "beetlejuice.jpg": {
+        "title": "Beetlejuice",
+        "actual_revenue": 294097060
+    },
+    "bob_marley.jpg": {
+        "title": "Bob Marley: One Love",
+        "actual_revenue": 180800000
     },
     "civil_war.jpg": {
         "title": "Civil War",
@@ -35,6 +47,10 @@
         "title": "Kung Fu Panda 4",
         "actual_revenue": 547634675
     },
+    "ministry.jpg": {
+        "title": "Ministry of Ungentlemanly Warfare",
+        "actual_revenue": 27300000
+    },
     "mission_impossible_dead.jpg": {
         "title": "Mission: Impossible - Dead Reckoning Part One",
         "actual_revenue": 570600000
@@ -42,6 +58,14 @@
     "oppenheimer.jpg": {
         "title": "Oppenheimer",
         "actual_revenue": 974060000
+    },
+    "quiet_place_day1.jpg": {
+        "title": "A Quiet Place: Day One",
+        "actual_revenue": 261800000
+    },
+    "reagan.jpg": {
+        "title": "Reagan",
+        "actual_revenue": 30100000
     },
     "shazam_2.png": {
         "title": "Shazam! Fury of the Gods",

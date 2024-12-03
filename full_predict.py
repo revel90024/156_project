@@ -41,9 +41,12 @@ class RevenuePredictor(nn.Module):
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         num_features = self.resnet.fc.in_features
         self.resnet.fc = nn.Sequential(
-            nn.Linear(num_features, 512),
+            nn.Linear(num_features, 1024),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.2),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(512, 1)
         )
     
@@ -67,7 +70,7 @@ def evaluate_sample(dataset=None):
     print("Loading best model from hyperparameter tuning...")
     model = RevenuePredictor()
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    model.load_state_dict(torch.load('models/clean_movies_1M_modern_best.pth'))
+    model.load_state_dict(torch.load('newarchitecture/best_10M_single_v1.pth'))
     model = model.to(device)
     model.eval()
     
