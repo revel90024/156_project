@@ -22,10 +22,27 @@ class MovieAllFeaturesDataset(Dataset):
         ])
         self.tokenizer = AutoTokenizer.from_pretrained('prajjwal1/bert-tiny')
         
-        # Calculate revenue statistics for normalization
-        revenues = [float(item['revenue']) for item in self.dataset]
-        self.revenue_mean = np.mean(revenues)
-        self.revenue_std = np.std(revenues)
+        # Compute mean and std for revenue and budget in log space
+        self.revenue_logs = np.array([np.log1p(float(item['revenue'])) for item in self.dataset])
+        self.budget_logs = np.array([np.log1p(float(item['budget'])) for item in self.dataset])
+        
+        self.revenue_mean = self.revenue_logs.mean()
+        self.revenue_std = self.revenue_logs.std()
+        self.budget_mean = self.budget_logs.mean()
+        self.budget_std = self.budget_logs.std()
+        
+        # Similarly for runtime
+        runtimes = np.array([float(item.get('runtime', 120)) for item in self.dataset])
+        self.runtime_mean = runtimes.mean()
+        self.runtime_std = runtimes.std()
+        
+        # For release dates
+        release_dates = np.array([
+            (datetime.strptime(item['release_date'], '%Y-%m-%d') - datetime(2000, 1, 1)).days
+            for item in self.dataset
+        ])
+        self.release_mean = release_dates.mean()
+        self.release_std = release_dates.std()
         
     def __len__(self):
         return len(self.dataset)
@@ -36,12 +53,16 @@ class MovieAllFeaturesDataset(Dataset):
         # 1. Image processing
         image = self.transform(item['image'])
         
-        # 2. Numerical features - normalize all
-        budget = np.log1p(float(item['budget'])) / 25.0  # Normalize log budget
-        runtime = float(item.get('runtime', 120)) / 200.0
+        # 2. Numerical features - standardization
+        budget = np.log1p(float(item['budget']))
+        budget = (budget - self.budget_mean) / self.budget_std
+        
+        runtime = float(item.get('runtime', self.runtime_mean))
+        runtime = (runtime - self.runtime_mean) / self.runtime_std
         
         release_date = datetime.strptime(item['release_date'], '%Y-%m-%d')
-        days_since_2000 = (release_date - datetime(2000, 1, 1)).days / 365.0 / 25.0
+        days_since_2000 = (release_date - datetime(2000, 1, 1)).days
+        days_since_2000 = (days_since_2000 - self.release_mean) / self.release_std
         
         numerical_features = torch.tensor([
             budget,
@@ -54,7 +75,7 @@ class MovieAllFeaturesDataset(Dataset):
         text_features = self.tokenizer(
             text,
             padding='max_length',
-            max_length=512,
+            max_length=256,  # Reduce max_length to save memory
             truncation=True,
             return_tensors='pt'
         )
@@ -64,11 +85,12 @@ class MovieAllFeaturesDataset(Dataset):
         genre_vector = torch.zeros(20)
         for genre in genres:
             if isinstance(genre, dict) and 'id' in genre:
-                genre_vector[genre['id'] % 20] = 1
+                genre_id = genre['id'] % 20  # Simplified for this example
+                genre_vector[genre_id] = 1
         
-        # 5. Target - normalize revenue
-        revenue = float(item['revenue'])
-        revenue = np.log1p(revenue) / 25.0  # Normalize log revenue
+        # 5. Target - standardize revenue
+        revenue = np.log1p(float(item['revenue']))
+        revenue = (revenue - self.revenue_mean) / self.revenue_std
         target = torch.tensor(revenue, dtype=torch.float32)
         
         return {
@@ -83,44 +105,45 @@ class MovieAllFeaturesDataset(Dataset):
 class MultiModalRevenuePredictor(nn.Module):
     def __init__(self):
         super().__init__()
-        # 1. Image backbone with frozen layers to save memory
+        # 1. Image backbone with partially frozen layers
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-        for param in self.resnet.parameters():  # Freeze ResNet
-            param.requires_grad = False
+        for name, param in self.resnet.named_parameters():
+            if 'layer4' not in name and 'fc' not in name:
+                param.requires_grad = False
         self.resnet.fc = nn.Identity()
         
-        # 2. Smaller BERT
-        self.bert = AutoModel.from_pretrained('prajjwal1/bert-tiny')  # Much smaller BERT
-        for param in self.bert.parameters():  # Freeze BERT
-            param.requires_grad = False
-            
-        # 3. Smaller fusion network with batch norm
+        # 2. Smaller BERT with partially frozen layers
+        self.bert = AutoModel.from_pretrained('prajjwal1/bert-tiny')
+        for name, param in self.bert.named_parameters():
+            if 'encoder.layer.1' not in name and 'pooler' not in name:
+                param.requires_grad = False
+                
+        # 3. Fusion network with increased capacity
         self.fusion = nn.Sequential(
-            nn.Linear(2048 + 128 + 3 + 20, 256),  # BERT-tiny has 128 dim
-            nn.BatchNorm1d(256),
+            nn.Linear(2048 + 128 + 3 + 20, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, 64),
-            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
+            nn.Linear(512, 128),
+            nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(64, 1)
+            nn.Dropout(0.3),
+            nn.Linear(128, 1)
         )
         
         # Initialize weights properly
         for m in self.fusion.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight)
+                nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
         
     def forward(self, batch):
-        # Add gradient checkpointing
-        with torch.cuda.amp.autocast() if torch.cuda.is_available() else nullcontext():
+        with torch.cuda.amp.autocast() if torch.cuda.is_available() or torch.backends.mps.is_available() else nullcontext():
             img_features = self.resnet(batch['image'])
             
             text_outputs = self.bert(
-                batch['text_ids'],
+                input_ids=batch['text_ids'],
                 attention_mask=batch['text_mask']
             )
             text_features = text_outputs.last_hidden_state[:, 0, :]
@@ -139,19 +162,26 @@ def calculate_metrics(predictions, actuals, threshold=0.5):
     predictions = np.array(predictions).squeeze()
     actuals = np.array(actuals).squeeze()
     
+    # Convert back from standardized log space to original revenue
+    predictions = np.expm1(predictions * revenue_std + revenue_mean)
+    actuals = np.expm1(actuals * revenue_std + revenue_mean)
+    
+    # Avoid division by zero by adding a small epsilon
+    epsilon = 1e-8
     # Regression metrics
     mse = np.mean((predictions - actuals) ** 2)
     rmse = np.sqrt(mse)
     mae = np.mean(np.abs(predictions - actuals))
     
     # Error percentages
-    errors = np.abs(predictions - actuals) / actuals * 100
+    errors = np.abs(predictions - actuals) / (actuals + epsilon) * 100
     within_25 = np.mean(errors <= 25) * 100
     within_50 = np.mean(errors <= 50) * 100
     
     # Revenue brackets for classification metrics
-    pred_high = predictions > np.median(actuals)
-    actual_high = actuals > np.median(actuals)
+    median_revenue = np.median(actuals)
+    pred_high = predictions > median_revenue
+    actual_high = actuals > median_revenue
     
     accuracy = np.mean(pred_high == actual_high) * 100
     
@@ -160,9 +190,9 @@ def calculate_metrics(predictions, actuals, threshold=0.5):
     false_pos = np.sum(pred_high & ~actual_high)
     false_neg = np.sum(~pred_high & actual_high)
     
-    precision = true_pos / (true_pos + false_pos) * 100
-    recall = true_pos / (true_pos + false_neg) * 100
-    f1 = 2 * (precision * recall) / (precision + recall)
+    precision = true_pos / (true_pos + false_pos + epsilon) * 100
+    recall = true_pos / (true_pos + false_neg + epsilon) * 100
+    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
     
     return {
         'RMSE': rmse,
@@ -175,7 +205,7 @@ def calculate_metrics(predictions, actuals, threshold=0.5):
         'F1': f1
     }
 
-def evaluate_model(model, val_loader, device):
+def evaluate_model(model, val_loader, device, revenue_mean, revenue_std):
     model.eval()
     total_loss = 0
     predictions = []
@@ -186,16 +216,12 @@ def evaluate_model(model, val_loader, device):
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
             
-            outputs = model(batch)
-            loss = nn.MSELoss()(outputs, batch['target'].unsqueeze(1))
+            outputs = model(batch).squeeze()
+            loss = nn.MSELoss()(outputs, batch['target'])
             total_loss += loss.item()
             
-            # Convert back to raw revenues
-            pred_revenue = torch.exp(outputs * 25.0) - 1
-            actual_revenue = torch.exp(batch['target'].unsqueeze(1) * 25.0) - 1
-            
-            predictions.extend(pred_revenue.cpu().numpy())
-            actuals.extend(actual_revenue.cpu().numpy())
+            predictions.extend(outputs.cpu().numpy())
+            actuals.extend(batch['target'].cpu().numpy())
     
     avg_loss = total_loss / len(val_loader)
     metrics = calculate_metrics(predictions, actuals)
@@ -203,7 +229,7 @@ def evaluate_model(model, val_loader, device):
     print("\n" + "="*80)
     print(f"EVALUATION METRICS:")
     print("="*80)
-    print(f"Loss:            {avg_loss:.4f}")  # This should now be much lower
+    print(f"Loss:            {avg_loss:.4f}")
     print(f"RMSE:            ${metrics['RMSE']:,.2f}")
     print(f"MAE:             ${metrics['MAE']:,.2f}")
     print(f"Within 25%:      {metrics['Within 25%']:.1f}%")
@@ -211,7 +237,7 @@ def evaluate_model(model, val_loader, device):
     print(f"Accuracy:        {metrics['Accuracy']:.1f}%")
     print(f"Precision:       {metrics['Precision']:.1f}%")
     print(f"Recall:          {metrics['Recall']:.1f}%")
-    print(f"F1 Score:        {metrics['F1']:.1f}")
+    print(f"F1 Score:        {metrics['F1']:.1f}%")
     print("="*80)
     
     return avg_loss, metrics
@@ -219,19 +245,30 @@ def evaluate_model(model, val_loader, device):
 def train_model():
     # Setup
     os.makedirs('models', exist_ok=True)
-    device = torch.device("mps" if torch.backends.mps.is_available() else
-                         "cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    
+    # Adjusted device selection to include MPS
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using device: MPS (Apple Silicon GPU)")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using device: CUDA GPU")
+    else:
+        device = torch.device("cpu")
+        print("Using device: CPU")
     
     # Training parameters
     EPOCHS = 20
-    BATCH_SIZE = 4
-    LEARNING_RATE = 1e-5
+    BATCH_SIZE = 16  # Increased batch size
+    LEARNING_RATE = 1e-4  # Adjusted learning rate
     PATIENCE = 5
     
     # Load dataset
     print("Loading dataset...")
     dataset = load_from_disk("clean_movies_1M_modern")
+    
+    # Filter out entries with zero revenue or budget
+    dataset = dataset.filter(lambda x: float(x['revenue']) > 0 and float(x['budget']) > 0)
     
     # Split dataset
     splits = dataset.train_test_split(test_size=0.2, seed=42)
@@ -241,6 +278,10 @@ def train_model():
     train_dataset = MovieAllFeaturesDataset(train_val, split="train")
     val_dataset = MovieAllFeaturesDataset(train_val, split="test")
     test_dataset = MovieAllFeaturesDataset({"train": splits["test"]}, split="train")
+    
+    global revenue_mean, revenue_std
+    revenue_mean = train_dataset.revenue_mean
+    revenue_std = train_dataset.revenue_std
     
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
@@ -254,7 +295,7 @@ def train_model():
     # Initialize model and optimizer
     model = MultiModalRevenuePredictor().to(device)
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE,
         weight_decay=0.01
     )
@@ -262,11 +303,14 @@ def train_model():
         optimizer, mode='min', factor=0.5, patience=2, verbose=True
     )
     
+    # Use Huber Loss for robustness to outliers
+    loss_fn = nn.SmoothL1Loss()
+    
     # Training loop
     best_val_loss = float('inf')
     best_metrics = None
     early_stopping_count = 0
-    scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
+    scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() or torch.backends.mps.is_available() else None
     
     print("\nStarting training...")
     for epoch in range(EPOCHS):
@@ -281,50 +325,41 @@ def train_model():
         # Training progress
         progress_bar = tqdm(train_loader, desc="Training")
         for batch in progress_bar:
-            try:
-                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
-                        for k, v in batch.items()}
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                    for k, v in batch.items()}
+            
+            optimizer.zero_grad()
+            
+            if scaler is not None:
+                with torch.cuda.amp.autocast():
+                    outputs = model(batch).squeeze()
+                    loss = loss_fn(outputs, batch['target'])
                 
-                optimizer.zero_grad()
-                
-                if scaler is not None:
-                    with torch.cuda.amp.autocast():
-                        outputs = model(batch)
-                        loss = nn.MSELoss()(outputs, batch['target'].unsqueeze(1))
-                    
-                    scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    outputs = model(batch)
-                    loss = nn.MSELoss()(outputs, batch['target'].unsqueeze(1))
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-                    optimizer.step()
-                
-                if not torch.isfinite(loss):
-                    print(f"Warning: Non-finite loss encountered")
-                    continue
-                    
-                total_loss += loss.item()
-                batch_count += 1
-                
-                # Update progress bar with current loss
-                progress_bar.set_postfix({
-                    'loss': f"{total_loss/batch_count:.4f}"
-                })
-                
-            except RuntimeError as e:
-                print(f"Error in batch: {e}")
-                continue
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(batch).squeeze()
+                loss = loss_fn(outputs, batch['target'])
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+            
+            total_loss += loss.item()
+            batch_count += 1
+            
+            # Update progress bar with current loss
+            progress_bar.set_postfix({
+                'loss': f"{total_loss/batch_count:.4f}"
+            })
         
         avg_train_loss = total_loss / len(train_loader)
         
         # Validation phase
         print("\nValidating...")
-        val_loss, val_metrics = evaluate_model(model, val_loader, device)
+        val_loss, val_metrics = evaluate_model(model, val_loader, device, revenue_mean, revenue_std)
         
         # Learning rate adjustment
         old_lr = optimizer.param_groups[0]['lr']
@@ -358,13 +393,17 @@ def train_model():
     print("Best Model Metrics:")
     print("="*80)
     for metric, value in best_metrics.items():
-        print(f"{metric+':':<15} {value:.2f}")
+        if 'Within' in metric or 'Accuracy' in metric or 'Precision' in metric or 'Recall' in metric or 'F1' in metric:
+            print(f"{metric+':':<15} {value:.2f}%")
+        else:
+            print(f"{metric+':':<15} ${value:,.2f}")
     print("="*80)
     
     # Final evaluation on test set
     print("\nEvaluating best model on test set...")
-    model.load_state_dict(torch.load('models/best_all_features.pth')['model_state_dict'])
-    test_loss, test_metrics = evaluate_model(model, test_loader, device)
-
+    checkpoint = torch.load('models/best_all_features.pth', map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    test_loss, test_metrics = evaluate_model(model, test_loader, device, revenue_mean, revenue_std)
+    
 if __name__ == "__main__":
     train_model()
