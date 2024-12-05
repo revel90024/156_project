@@ -6,6 +6,8 @@ lol so this model turns out to be way better at predicting revenue
 for smaller movies, it does not generalize well to outliers because
 the large training data has way higher ratio of outliers vs the smaller one
 fuck lol
+
+did one last one with 50M movies 
 """
 
 
@@ -20,9 +22,9 @@ import json
 from PIL import Image
 from datetime import datetime
 
-MODEL_NAME = "adi_dec4"
-DATASET_NAME = "large_10M_torch2"
-FOLDER_NAME = "adi_large_models"
+MODEL_NAME = "adi_dec4_50M"
+DATASET_NAME = "large_50M_torch"
+FOLDER_NAME = "adi_large_50M"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):

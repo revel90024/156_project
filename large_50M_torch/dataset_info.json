@@ -1,0 +1,73 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "id": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "image": {
+      "feature": {
+        "feature": {
+          "feature": {
+            "dtype": "float64",
+            "_type": "Value"
+          },
+          "_type": "Sequence"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    },
+    "title": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "genres": [
+      {
+        "id": {
+          "dtype": "int64",
+          "_type": "Value"
+        },
+        "name": {
+          "dtype": "string",
+          "_type": "Value"
+        }
+      }
+    ],
+    "overview": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "popularity": {
+      "dtype": "float64",
+      "_type": "Value"
+    },
+    "release_date": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "budget": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "revenue": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "tagline": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "original_language": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "runtime": {
+      "dtype": "int64",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}

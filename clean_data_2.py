@@ -2,33 +2,17 @@ from datasets import load_dataset, load_from_disk, Dataset
 import os
 
 print("Loading filtered dataset...")
-dataset = load_from_disk("large_10M_torch")
+dataset = load_from_disk("large_10M_torch2")
 
 print(f"\nStarting size: {len(dataset):,d}")
 
-print("\nRemoving duplicates...")
-filtered_data = []
-seen_ids = set()
-count = 0
-
-for item in dataset:
-    count += 1
-    if count % 100 == 0:
-        print(f"Processed: {count:,d} | Found {len(seen_ids):,d} unique movies")
-    
-    if item['id'] not in seen_ids:
-        seen_ids.add(item['id'])
-        filtered_data.append(item)
-        print(f"Kept: {item['title']} (${item['revenue']:,.0f})")
-
-# Convert back to Dataset
-print("\nConverting to final dataset...")
-final_dataset = Dataset.from_list(filtered_data)
+print("\nFiltering for movies with revenue >= $50M...")
+final_dataset = dataset.filter(lambda x: x['revenue'] >= 50_000_000)
 
 print(f"\nStats:")
 print(f"Original size: {len(dataset):,d}")
-print(f"After deduping: {len(final_dataset):,d}")
+print(f"After filtering: {len(final_dataset):,d}")
 
 print("\nSaving final dataset...")
-final_dataset.save_to_disk("large_10M_torch2")
-print("\nDone! Saved to: large_10M_torch2/")
+final_dataset.save_to_disk("large_50M_torch")
+print("\nDone! Saved to: large_50M_torch/")

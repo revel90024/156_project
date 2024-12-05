@@ -6,7 +6,7 @@ import torch.nn as nn
 import json
 import numpy as np
 
-MODEL_NAME_TO_TEST = "anika_models/anika_dec4.pth"
+MODEL_NAME_TO_TEST = "adi_large_50M/adi_dec4_50M.pth"
 
 class RevenuePredictor(nn.Module):
     def __init__(self, hidden_sizes=[1024, 512, 1024], dropout_rates=[0.2, 0.1, 0.2]):
