@@ -18,9 +18,9 @@ import json
 from PIL import Image
 from datetime import datetime
 
-MODEL_NAME = "best_10M_log10_v1"
+MODEL_NAME = "anika_dec4"
 DATASET_NAME = "clean_movies_10M"
-FOLDER_NAME = "log10_model"
+FOLDER_NAME = "anika_models"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):

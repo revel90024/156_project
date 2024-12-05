@@ -7,30 +7,35 @@ import torch.nn as nn
 import json
 import numpy as np
 
-MODEL_NAME_TO_TEST = "newarchitecture/best_10M_single_v1.pth"
+MODEL_NAME_TO_TEST = "anika_models/anika_dec4.pth"
 
 class RevenuePredictor(nn.Module):
-    def __init__(self, hidden_sizes, dropout_rates):
+    def __init__(self, hidden_sizes=[1024, 512, 1024], dropout_rates=[0.2, 0.1, 0.2]):
         super().__init__()
         self.resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         num_features = self.resnet.fc.in_features
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(num_features, hidden_sizes[0]),
-            nn.ReLU(),
-            nn.Dropout(dropout_rates[0]),
-            nn.Linear(hidden_sizes[0], hidden_sizes[1]),
-            nn.ReLU(),
-            nn.Dropout(dropout_rates[1]),
-            nn.Linear(hidden_sizes[1], 1)
-        )
+        
+        layers = []
+        in_features = num_features
+        
+        for hidden_size, dropout_rate in zip(hidden_sizes, dropout_rates):
+            layers.extend([
+                nn.Linear(in_features, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate)
+            ])
+            in_features = hidden_size
+        
+        layers.append(nn.Linear(in_features, 1))
+        self.resnet.fc = nn.Sequential(*layers)
     
     def forward(self, x):
         return self.resnet(x)
 
 def load_model():
     model = RevenuePredictor(
-        hidden_sizes=[1024, 512],
-        dropout_rates=[0.2, 0.2]
+        hidden_sizes=[1024, 512, 1024],
+        dropout_rates=[0.2, 0.1, 0.2]
     )
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = model.to(device)
@@ -70,7 +75,7 @@ def predict_folder(folder_path, movie_data):
                 
                 with torch.no_grad():
                     log_revenue = model(image_tensor)
-                    predicted_revenue = torch.exp(log_revenue).item() - 1
+                    predicted_revenue = float(10 ** log_revenue.squeeze())
                 
                 # Calculate error
                 error_percent = abs(predicted_revenue - actual_revenue) / actual_revenue * 100
