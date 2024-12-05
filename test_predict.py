@@ -1,7 +1,6 @@
 import torch
 from torchvision import transforms, models
 from PIL import Image
-import os
 from pathlib import Path
 import torch.nn as nn
 import json
@@ -46,9 +45,6 @@ def load_model():
     return model, device
 
 def predict_folder(folder_path, movie_data):
-    """
-    Predict revenues for all images in a folder and compare with actual revenues
-    """
     model, device = load_model()
     transform = transforms.Compose([
         transforms.Resize(256),
@@ -75,7 +71,7 @@ def predict_folder(folder_path, movie_data):
                 
                 with torch.no_grad():
                     log_revenue = model(image_tensor)
-                    predicted_revenue = float(10 ** log_revenue.squeeze())
+                    predicted_revenue = float(10 ** log_revenue.squeeze().item())
                 
                 # Calculate error
                 error_percent = abs(predicted_revenue - actual_revenue) / actual_revenue * 100
