@@ -7,6 +7,7 @@ dataset_stats.json
 clean_movies_1M_modern/
 large_10M_torch/
 large_10M_torch2/
+large_50M_torch/
 
 
 # Python
