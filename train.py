@@ -22,9 +22,9 @@ import json
 from PIL import Image
 from datetime import datetime
 
-MODEL_NAME = "adi_dec4"
+MODEL_NAME = "final_model"
 DATASET_NAME = "large_10M_torch2"
-FOLDER_NAME = "adi_large_models"
+FOLDER_NAME = "model+results"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
