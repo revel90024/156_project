@@ -7,7 +7,7 @@ for smaller movies, it does not generalize well to outliers because
 the large training data has way higher ratio of outliers vs the smaller one
 fuck lol
 
-did one last one with 50M movies 
+did one last one with 50M movies worked better but idk
 """
 
 
@@ -22,9 +22,9 @@ import json
 from PIL import Image
 from datetime import datetime
 
-MODEL_NAME = "adi_dec4_50M"
-DATASET_NAME = "large_50M_torch"
-FOLDER_NAME = "adi_large_50M"
+MODEL_NAME = "adi_dec4"
+DATASET_NAME = "large_10M_torch2"
+FOLDER_NAME = "adi_large_models"
 
 class MoviePosterDataset(Dataset):
     def __init__(self, hf_dataset, split="train", transform=None):
@@ -103,7 +103,7 @@ def train_with_params(train_loader, val_loader, params):
             images, revenues = images.to(device), revenues.to(device)
             outputs = model(images)
             
-            # Convert back from log space
+            # convert back from log space
             pred_revenue = torch.exp(outputs.squeeze()) - 1
             actual_revenue = torch.exp(revenues) - 1
             
@@ -118,7 +118,7 @@ def train_with_params(train_loader, val_loader, params):
                 print("-" * 50)
     
     for epoch in range(params['epochs']):
-        # Training phase
+        # training phase
         model.train()
         train_losses = []
         
@@ -154,39 +154,39 @@ def train_with_params(train_loader, val_loader, params):
                 val_loss = nn.MSELoss()(outputs, revenues.unsqueeze(1))
                 val_losses.append(val_loss.item())
                 
-                # Fix the prediction storage
+                # fix the prediction storage
                 pred_revenue = 10 ** outputs.squeeze()
                 actual_revenue = 10 ** revenues
                 
-                # Convert to numpy arrays and make sure they're 1D
+                # convert to numpy arrays and make sure they're 1D
                 preds = pred_revenue.cpu().numpy()
                 actuals = actual_revenue.cpu().numpy()
                 
-                # Extend lists with the batch predictions
-                if len(preds.shape) == 0:  # If single number
+                # extend lists with the batch predictions
+                if len(preds.shape) == 0:  #  single number
                     all_preds.append(float(preds))
                     all_actuals.append(float(actuals))
-                else:  # If batch
+                else:  # batch
                     all_preds.extend(preds)
                     all_actuals.extend(actuals)
         
         avg_train_loss = np.mean(train_losses)
         avg_val_loss = np.mean(val_losses)
         
-        # Calculate regression metrics
+        # calculate regression metrics
         all_preds = np.array(all_preds)
         all_actuals = np.array(all_actuals)
         within_25 = np.mean(np.abs(all_preds - all_actuals) / all_actuals <= 0.25) * 100
         within_50 = np.mean(np.abs(all_preds - all_actuals) / all_actuals <= 0.50) * 100
         
-        # Calculate classification metrics (above/below median)
+        # calculate classification metrics (above/below median)
         median_revenue = np.median(all_actuals)
         pred_high = all_preds > median_revenue
         actual_high = all_actuals > median_revenue
         
         accuracy = np.mean(pred_high == actual_high) * 100
         
-        # Handle division by zero cases
+        # handle division by zero cases
         if np.sum(pred_high) > 0:
             precision = np.sum(pred_high & actual_high) / np.sum(pred_high) * 100
         else:
@@ -197,7 +197,7 @@ def train_with_params(train_loader, val_loader, params):
         else:
             recall = 0
             
-        # Calculate F1 Score
+        # calculate F1 Score
         if precision + recall > 0:
             f1_score = 2 * (precision * recall) / (precision + recall)
         else:
@@ -215,7 +215,7 @@ def train_with_params(train_loader, val_loader, params):
         print(f"F1 Score:      {f1_score:.1f}")
         print("-" * 50)
         
-        # Print sample predictions every 5 epochs
+        # print sample predictions every 5 epochs
         if (epoch + 1) % 5 == 0:
             print_predictions(model, val_loader)
         
@@ -225,7 +225,7 @@ def train_with_params(train_loader, val_loader, params):
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), f'{FOLDER_NAME}/{MODEL_NAME}.pth')
             
-            # Update JSON with both losses
+            # update JSON with both losses
             current_results = {
                 'best_val_loss': float(best_val_loss),
                 'train_loss': float(avg_train_loss),
@@ -271,7 +271,7 @@ def grid_search(train_loader, val_loader):
         val_loss = train_with_params(train_loader, val_loader, params)
         results.append((val_loss, params))
         
-        # Save results after each trial
+        # save results after each trial
         results.sort(key=lambda x: x[0])
         with open(f'{FOLDER_NAME}/{MODEL_NAME}.json', 'w') as f:
             json.dump({
@@ -297,13 +297,13 @@ def evaluate_on_test(model, test_loader, device):
             test_loss = nn.MSELoss()(outputs, revenues.unsqueeze(1))
             test_losses.append(test_loss.item())
             
-            # Store predictions and actuals for metrics
+            # store predictions and actuals for metrics
             pred_revenue = 10 ** outputs.squeeze()
             actual_revenue = 10 ** revenues
             all_preds.extend(pred_revenue.cpu().numpy())
             all_actuals.extend(actual_revenue.cpu().numpy())
     
-    # Calculate metrics
+    # calculate metrics
     all_preds = np.array(all_preds)
     all_actuals = np.array(all_actuals)
     
@@ -357,15 +357,15 @@ def evaluate_on_test(model, test_loader, device):
 def single_run(train_loader, val_loader, test_loader):
     params = {
         # Training params
-        'learning_rate': 2e-4,      # Higher learning rate
-        'weight_decay': 0.0001,     # Less regularization
+        'learning_rate': 2e-4,      # higher learning rate
+        'weight_decay': 0.0001,     # less regularization
         'epochs': 30,               # even more epochs
-        'patience': 7,              # More patience
-        'l1_lambda': 0,            # No L1
-        'clip_grad': None,         # No gradient clipping
-        'batch_size': 32,          # Same batch size
+        'patience': 7,              # more patience
+        'l1_lambda': 0,            # no L1
+        'clip_grad': None,         # no gradient clipping
+        'batch_size': 32,          # same batch size
         
-        # Model architecture params
+        # model architecture params
         'hidden_sizes': [1024, 512, 1024],  # try 3 hidden layers  
         'dropout_rates': [0.2, 0.1, 0.2]   # lower the dropout 
     }
@@ -373,7 +373,7 @@ def single_run(train_loader, val_loader, test_loader):
     print("\nRunning with less regularization:")
     print(json.dumps(params, indent=2))
     
-    # Create model with specified architecture
+    # create model with specified architecture
     model = RevenuePredictor(
         hidden_sizes=params['hidden_sizes'],
         dropout_rates=params['dropout_rates']
@@ -381,7 +381,7 @@ def single_run(train_loader, val_loader, test_loader):
     
     val_loss = train_with_params(train_loader, val_loader, params)
     
-    # Load best model for test evaluation
+    # load best model for test evaluation
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = RevenuePredictor(
         hidden_sizes=params['hidden_sizes'],
@@ -389,10 +389,10 @@ def single_run(train_loader, val_loader, test_loader):
     ).to(device)
     model.load_state_dict(torch.load(f'{FOLDER_NAME}/{MODEL_NAME}.pth'))
     
-    # Get test metrics
+    # get test metrics
     test_metrics = evaluate_on_test(model, test_loader, device)
     
-    # Save all results
+    # save all results
     with open(f'{FOLDER_NAME}/{MODEL_NAME}.json', 'w') as f:
         json.dump({
             'val_loss': val_loss,
@@ -416,12 +416,12 @@ def main():
     
     train_val_splits = train_val.train_test_split(test_size=0.1, seed=42)
     
-    # Create datasets
+    # create datasets
     train_dataset = MoviePosterDataset(train_val_splits, split="train")
     val_dataset = MoviePosterDataset(train_val_splits, split="test")
     test_dataset = MoviePosterDataset({"train": test_dataset}, split="train")
     
-    # Create loaders
+    # create loaders
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32)
     test_loader = DataLoader(test_dataset, batch_size=32)
@@ -431,10 +431,10 @@ def main():
     print(f"Validation: {len(val_dataset):,d} examples")
     print(f"Test:       {len(test_dataset):,d} examples")
     
-    # Run single training with best params
+    # run single training with best params
     val_loss, test_metrics = single_run(train_loader, val_loader, test_loader)
     
-    # Print final results
+    # print final results
     print("\nFinal Results:")
     print("=" * 50)
     print(f"Best Validation Loss: {val_loss:.4f}")
@@ -447,7 +447,7 @@ def main():
                 print(f"{metric:15}: {value:.1f}%")
     print("=" * 50)
     
-    # Save final results
+    # save final results
     results = {
         'validation_loss': val_loss,
         'test_metrics': test_metrics,
