@@ -113,4 +113,4 @@ Achieved at epoch 16:
    - Test different loss functions
    - Explore ensemble methods
 
-## Usage
+**Note**: Movie information in the additional [fun_posters](https://github.com/revel90024/156_project/tree/main/fun_posters) dataset was taken from [IMDB](https://www.imdb.com/). 
