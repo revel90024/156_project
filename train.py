@@ -5,7 +5,6 @@ images are already in torch tensor format so just had to adjust like 2 lines
 lol so this model turns out to be way better at predicting revenue 
 for smaller movies, it does not generalize well to outliers because
 the large training data has way higher ratio of outliers vs the smaller one
-fuck lol
 
 did one last one with 50M movies worked better but idk
 """
